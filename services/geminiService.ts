@@ -3,18 +3,24 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { RawShiftData } from "../types.ts";
 
 export const extractShiftDataFromImage = async (base64Image: string): Promise<RawShiftData> => {
-  // Safely check for API_KEY to avoid ReferenceErrors in browser
+  // Enhanced API Key detection
   let apiKey = '';
   try {
-    apiKey = (process.env as any).API_KEY || '';
+    apiKey = (process.env as any)?.API_KEY || (window as any)?.process?.env?.API_KEY || '';
   } catch (e) {
-    console.warn("Could not access process.env.API_KEY directly.");
+    console.error("Critical: Could not access process.env", e);
   }
   
-  if (!apiKey) {
-    throw new Error("API_KEY খুঁজে পাওয়া যায়নি। নেটলিফাই এনভায়রনমেন্ট ভ্যারিয়েবল চেক করুন।");
+  // If still empty, check if it was hardcoded or injected elsewhere
+  if (!apiKey || apiKey === "YOUR_API_KEY_HERE" || apiKey.length < 10) {
+    throw new Error("API_KEY খুঁজে পাওয়া যায়নি। দয়া করে Netlify Site Settings-এ 'API_KEY' যোগ করুন এবং সাইটটি Re-deploy করুন। আপনি যদি লোকাল মেশিনে থাকেন, তবে .env ফাইলটি চেক করুন।");
   }
 
+  const mimeMatch = base64Image.match(/^data:(image\/[a-zA-Z]+);base64,/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const imageData = base64Image.split(',')[1] || base64Image;
+
+  // Re-initialize AI client with the detected key
   const ai = new GoogleGenAI({ apiKey: apiKey });
   
   try {
@@ -24,14 +30,25 @@ export const extractShiftDataFromImage = async (base64Image: string): Promise<Ra
         parts: [
           {
             inlineData: {
-              mimeType: 'image/jpeg',
-              data: base64Image.split(',')[1] || base64Image,
+              mimeType: mimeType,
+              data: imageData,
             },
           },
           {
-            text: `Extract taxi shift summary details from this image. 
-            Respond with the following JSON structure ONLY. Use 0 if a field is not found.
-            Ensure numeric values are provided for all amounts.`
+            text: `Extract taxi shift summary details from this UAE/Dubai taxi receipt image. 
+            Identify these specific fields even if labeled differently:
+            - "Total Sales" or "Total Amount" -> totalAmount
+            - "Careem", "Card", or "Paid in Careem" -> paidInCareem
+            - "Total Hired KM" -> totalHiredKm
+            - "Vacant KM" -> vacantKm
+            - "Total Trip" -> totalTrip
+            - "Booking Trip" or "Dispatch Trip" -> bookingTrip
+            - "Salik" or "Tollway" -> tollwayAmount
+            - "Hala Pack" -> halaPackAmount
+            - "Other Expenses" or "Fine/Gate" -> otherExpenses
+            - "Date" -> date
+            
+            Return ONLY a valid JSON object. Use 0 for missing numeric values.`
           }
         ]
       },
@@ -51,26 +68,34 @@ export const extractShiftDataFromImage = async (base64Image: string): Promise<Ra
             otherExpenses: { type: Type.NUMBER },
             date: { type: Type.STRING }
           },
-          required: ["totalAmount", "paidInCareem", "totalHiredKm", "totalTrip"]
+          required: ["totalAmount", "totalHiredKm"]
         }
       }
     });
 
-    const data = JSON.parse(response.text || '{}');
+    const text = response.text;
+    if (!text) throw new Error("AI ছবি থেকে কোনো তথ্য খুঁজে পায়নি।");
+    
+    const data = JSON.parse(text);
     return {
-      totalAmount: data.totalAmount || 0,
-      paidInCareem: data.paidInCareem || 0,
-      totalHiredKm: data.totalHiredKm || 0,
-      vacantKm: data.vacantKm || 0,
-      totalTrip: data.totalTrip || 0,
-      bookingTrip: data.bookingTrip || 0,
-      tollwayAmount: data.tollwayAmount || 0,
-      halaPackAmount: data.halaPackAmount || 0,
-      otherExpenses: data.otherExpenses || 0,
+      totalAmount: Number(data.totalAmount) || 0,
+      paidInCareem: Number(data.paidInCareem) || 0,
+      totalHiredKm: Number(data.totalHiredKm) || 0,
+      vacantKm: Number(data.vacantKm) || 0,
+      totalTrip: Number(data.totalTrip) || 0,
+      bookingTrip: Number(data.bookingTrip) || 0,
+      tollwayAmount: Number(data.tollwayAmount) || 0,
+      halaPackAmount: Number(data.halaPackAmount) || 0,
+      otherExpenses: Number(data.otherExpenses) || 0,
       date: data.date || new Date().toISOString().split('T')[0]
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini processing error:", error);
-    throw new Error("ছবি থেকে তথ্য পড়া সম্ভব হয়নি। আবার চেষ্টা করুন।");
+    
+    if (error.message?.includes("API key not valid") || error.message?.includes("403")) {
+      throw new Error("আপনার API Key-টি কাজ করছে না। অনুগ্রহ করে একটি বৈধ Key ব্যবহার করুন।");
+    }
+    
+    throw new Error(error.message || "ছবিটি স্ক্যান করা সম্ভব হচ্ছে না। দয়া করে আরও পরিষ্কার ছবি তুলুন।");
   }
 };
