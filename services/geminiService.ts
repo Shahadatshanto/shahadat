@@ -3,11 +3,16 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { RawShiftData } from "../types.ts";
 
 export const extractShiftDataFromImage = async (base64Image: string): Promise<RawShiftData> => {
-  // Accessing API_KEY safely.
-  const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : '';
+  // Safely check for API_KEY to avoid ReferenceErrors in browser
+  let apiKey = '';
+  try {
+    apiKey = (process.env as any).API_KEY || '';
+  } catch (e) {
+    console.warn("Could not access process.env.API_KEY directly.");
+  }
   
   if (!apiKey) {
-    throw new Error("API_KEY সেট করা নেই। দয়া করে নেটলিফাই সেটিংসে API_KEY যোগ করুন।");
+    throw new Error("API_KEY খুঁজে পাওয়া যায়নি। নেটলিফাই এনভায়রনমেন্ট ভ্যারিয়েবল চেক করুন।");
   }
 
   const ai = new GoogleGenAI({ apiKey: apiKey });
@@ -65,7 +70,7 @@ export const extractShiftDataFromImage = async (base64Image: string): Promise<Ra
       date: data.date || new Date().toISOString().split('T')[0]
     };
   } catch (error) {
-    console.error("Failed to parse Gemini response:", error);
-    throw new Error("ছবি থেকে তথ্য পড়া যায়নি। ছবি পরিষ্কার করে আবার তুলুন এবং নিশ্চিত করুন এটি একটি ভ্যালিড সামারি রিপোর্ট।");
+    console.error("Gemini processing error:", error);
+    throw new Error("ছবি থেকে তথ্য পড়া সম্ভব হয়নি। আবার চেষ্টা করুন।");
   }
 };
