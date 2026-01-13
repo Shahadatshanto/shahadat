@@ -1,0 +1,7 @@
+{
+  "name": "TaxiShift Pro - Smart Summary Analyzer",
+  "description": "An automated shift management tool for taxi drivers that extracts earnings, expenses, and calculates net income from shift summary photos using Gemini OCR.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
